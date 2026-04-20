@@ -1,0 +1,224 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  IAM Automation Lab — Creates IAM users (ec2-user1, ec2-user2, s3-user),
+  user groups with scoped permissions, a shared temporary password stored
+  in Secrets Manager, and enforces password-reset on first login.
+  Designed for GitSync deployment.
+
+
+Parameters:
+  PasswordLength:
+    Type: Number
+    Default: 16
+    MinValue: 12
+    MaxValue: 32
+    Description: Length of the auto-generated temporary password.
+
+  SecretName:
+    Type: String
+    Default: "iam-lab/temp-console-password"
+    Description: Name of the Secrets Manager secret that stores the temp password.
+
+
+Resources:
+
+  # Secrets Manager — auto-generated one-time password
+  TempConsolePassword:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      Name: !Ref SecretName
+      Description: "Auto-generated temporary password assigned to all IAM lab users."
+      GenerateSecretString:
+        SecretStringTemplate: '{"username": "iam-lab-users"}'
+        GenerateStringKey: "password"
+        PasswordLength: !Ref PasswordLength
+        ExcludeCharacters: '"@/\\'
+        RequireEachIncludedType: true
+      Tags:
+        - Key: Project
+          Value: IAMLab
+        - Key: ManagedBy
+          Value: CloudFormation
+
+
+  # IAM Groups
+
+  # EC2 Group
+  EC2Group:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: EC2LabGroup
+      Policies:
+        - PolicyName: EC2ReadAndDescribePolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowEC2ReadAccess
+                Effect: Allow
+                Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - ec2:DescribeRegions
+                  - ec2:DescribeAvailabilityZones
+                  - ec2:DescribeImages
+                  - ec2:DescribeKeyPairs
+                  - ec2:DescribeSecurityGroups
+                  - ec2:DescribeSubnets
+                  - ec2:DescribeVpcs
+                Resource: "*"
+              # Allow creating EC2 instances (ec2-user2 overrides this with a Deny)
+              - Sid: AllowEC2RunInstances
+                Effect: Allow
+                Action:
+                  - ec2:RunInstances
+                  - ec2:CreateTags
+                  - ec2:TerminateInstances
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource: "*"
+
+  #S3 Group
+  S3Group:
+    Type: AWS::IAM::Group
+    Properties:
+      GroupName: S3LabGroup
+      Policies:
+        - PolicyName: S3ListAndReadPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: AllowS3ListBuckets
+                Effect: Allow
+                Action:
+                  - s3:ListAllMyBuckets
+                  - s3:GetBucketLocation
+                Resource: "*"
+              - Sid: AllowS3ReadObjects
+                Effect: Allow
+                Action:
+                  - s3:ListBucket
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                Resource:
+                  - "arn:aws:s3:::*"
+                  - "arn:aws:s3:::*/*"
+
+
+  # IAM Users
+
+  # ec2-user1: EC2 group, can create instances
+  EC2User1:
+    Type: AWS::IAM::User
+    DependsOn: TempConsolePassword
+    Properties:
+      UserName: ec2-user1
+      Groups:
+        - !Ref EC2Group
+      LoginProfile:
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretArn}:SecretString:password}}"
+          - SecretArn: !Ref TempConsolePassword
+        PasswordResetRequired: true
+      Tags:
+        - Key: Project
+          Value: IAMLab
+        - Key: Group
+          Value: EC2
+
+  # ec2-user2: EC2 group, DENIED from creating instances
+  EC2User2:
+    Type: AWS::IAM::User
+    DependsOn: TempConsolePassword
+    Properties:
+      UserName: ec2-user2
+      Groups:
+        - !Ref EC2Group
+      # Inline policy that explicitly denies RunInstances — overrides group Allow
+      Policies:
+        - PolicyName: DenyEC2RunInstances
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: ExplicitDenyRunInstances
+                Effect: Deny
+                Action:
+                  - ec2:RunInstances
+                  - ec2:TerminateInstances
+                  - ec2:StartInstances
+                  - ec2:StopInstances
+                Resource: "*"
+      LoginProfile:
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretArn}:SecretString:password}}"
+          - SecretArn: !Ref TempConsolePassword
+        PasswordResetRequired: true
+      Tags:
+        - Key: Project
+          Value: IAMLab
+        - Key: Group
+          Value: EC2
+
+  # s3-user: S3 group only
+  S3User:
+    Type: AWS::IAM::User
+    DependsOn: TempConsolePassword
+    Properties:
+      UserName: s3-user
+      Groups:
+        - !Ref S3Group
+      LoginProfile:
+        Password: !Sub
+          - "{{resolve:secretsmanager:${SecretArn}:SecretString:password}}"
+          - SecretArn: !Ref TempConsolePassword
+        PasswordResetRequired: true
+      Tags:
+        - Key: Project
+          Value: IAMLab
+        - Key: Group
+          Value: S3
+
+  # IAM Password Policy 
+Outputs:
+
+  SecretManagerARN:
+    Description: "ARN of the Secrets Manager secret holding the temp password."
+    Value: !Ref TempConsolePassword
+    Export:
+      Name: !Sub "${AWS::StackName}-TempPasswordSecretARN"
+
+  SecretManagerConsoleURL:
+    Description: "Direct link to the secret in the AWS Console."
+    Value: !Sub "https://${AWS::Region}.console.aws.amazon.com/secretsmanager/secret?name=${SecretName}&region=${AWS::Region}"
+
+  EC2GroupARN:
+    Description: "ARN of the EC2 IAM Group."
+    Value: !GetAtt EC2Group.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-EC2GroupARN"
+
+  S3GroupARN:
+    Description: "ARN of the S3 IAM Group."
+    Value: !GetAtt S3Group.Arn
+    Export:
+      Name: !Sub "${AWS::StackName}-S3GroupARN"
+
+  EC2User1ARN:
+    Description: "ARN of ec2-user1."
+    Value: !GetAtt EC2User1.Arn
+
+  EC2User2ARN:
+    Description: "ARN of ec2-user2 (denied from creating instances)."
+    Value: !GetAtt EC2User2.Arn
+
+  S3UserARN:
+    Description: "ARN of s3-user."
+    Value: !GetAtt S3User.Arn
+
+  PasswordRetrievalCommand:
+    Description: "AWS CLI command to retrieve the temporary password."
+    Value: !Sub >-
+      aws secretsmanager get-secret-value
+      --secret-id ${SecretName}
+      --region ${AWS::Region}
+      --query SecretString
+      --output text
