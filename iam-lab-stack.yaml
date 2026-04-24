@@ -5,7 +5,6 @@ Description: >
   in Secrets Manager, and enforces password-reset on first login.
   Designed for GitSync deployment.
 
-
 Parameters:
   PasswordLength:
     Type: Number
@@ -19,10 +18,8 @@ Parameters:
     Default: "iam-lab/temp-console-password"
     Description: Name of the Secrets Manager secret that stores the temp password.
 
-
 Resources:
 
-  # Secrets Manager — auto-generated one-time password
   TempConsolePassword:
     Type: AWS::SecretsManager::Secret
     Properties:
@@ -40,10 +37,6 @@ Resources:
         - Key: ManagedBy
           Value: CloudFormation
 
-
-  # IAM Groups
-
-  # EC2 Group
   EC2Group:
     Type: AWS::IAM::Group
     Properties:
@@ -66,7 +59,6 @@ Resources:
                   - ec2:DescribeSubnets
                   - ec2:DescribeVpcs
                 Resource: "*"
-              # Allow creating EC2 instances (ec2-user2 overrides this with a Deny)
               - Sid: AllowEC2RunInstances
                 Effect: Allow
                 Action:
@@ -77,7 +69,6 @@ Resources:
                   - ec2:StopInstances
                 Resource: "*"
 
-  #S3 Group
   S3Group:
     Type: AWS::IAM::Group
     Properties:
@@ -103,10 +94,34 @@ Resources:
                   - "arn:aws:s3:::*"
                   - "arn:aws:s3:::*/*"
 
+  EC2User2PermissionBoundary:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: EC2User2PermissionBoundary
+      Description: "Permission boundary for ec2-user2. Caps maximum permissions to EC2 read-only and IAM self-service. Instance lifecycle actions are outside the boundary ceiling."
+      PolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Sid: AllowEC2ReadOnly
+            Effect: Allow
+            Action:
+              - ec2:DescribeInstances
+              - ec2:DescribeInstanceStatus
+              - ec2:DescribeRegions
+              - ec2:DescribeAvailabilityZones
+              - ec2:DescribeImages
+              - ec2:DescribeKeyPairs
+              - ec2:DescribeSecurityGroups
+              - ec2:DescribeSubnets
+              - ec2:DescribeVpcs
+            Resource: "*"
+          - Sid: AllowIAMSelfService
+            Effect: Allow
+            Action:
+              - iam:ChangePassword
+              - iam:GetUser
+            Resource: !Sub "arn:aws:iam::${AWS::AccountId}:user/ec2-user2"
 
-  # IAM Users
-
-  # ec2-user1: EC2 group, can create instances
   EC2User1:
     Type: AWS::IAM::User
     DependsOn: TempConsolePassword
@@ -125,28 +140,16 @@ Resources:
         - Key: Group
           Value: EC2
 
-  # ec2-user2: EC2 group, DENIED from creating instances
   EC2User2:
     Type: AWS::IAM::User
-    DependsOn: TempConsolePassword
+    DependsOn:
+      - TempConsolePassword
+      - EC2User2PermissionBoundary
     Properties:
       UserName: ec2-user2
       Groups:
         - !Ref EC2Group
-      # Inline policy that explicitly denies RunInstances — overrides group Allow
-      Policies:
-        - PolicyName: DenyEC2RunInstances
-          PolicyDocument:
-            Version: "2012-10-17"
-            Statement:
-              - Sid: ExplicitDenyRunInstances
-                Effect: Deny
-                Action:
-                  - ec2:RunInstances
-                  - ec2:TerminateInstances
-                  - ec2:StartInstances
-                  - ec2:StopInstances
-                Resource: "*"
+      PermissionsBoundary: !Ref EC2User2PermissionBoundary
       LoginProfile:
         Password: !Sub
           - "{{resolve:secretsmanager:${SecretArn}:SecretString:password}}"
@@ -158,7 +161,6 @@ Resources:
         - Key: Group
           Value: EC2
 
-  # s3-user: S3 group only
   S3User:
     Type: AWS::IAM::User
     DependsOn: TempConsolePassword
@@ -177,7 +179,6 @@ Resources:
         - Key: Group
           Value: S3
 
-  # IAM Password Policy 
 Outputs:
 
   SecretManagerARN:
@@ -207,8 +208,12 @@ Outputs:
     Value: !GetAtt EC2User1.Arn
 
   EC2User2ARN:
-    Description: "ARN of ec2-user2 (denied from creating instances)."
+    Description: "ARN of ec2-user2 (permission boundary applied)."
     Value: !GetAtt EC2User2.Arn
+
+  EC2User2BoundaryARN:
+    Description: "ARN of the permission boundary applied to ec2-user2."
+    Value: !Ref EC2User2PermissionBoundary
 
   S3UserARN:
     Description: "ARN of s3-user."
