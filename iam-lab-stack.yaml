@@ -22,6 +22,8 @@ Resources:
 
   TempConsolePassword:
     Type: AWS::SecretsManager::Secret
+    DeletionPolicy: Delete       
+    UpdateReplacePolicy: Delete 
     Properties:
       Name: !Ref SecretName
       Description: "Auto-generated temporary password assigned to all IAM lab users."
@@ -39,6 +41,7 @@ Resources:
 
   EC2Group:
     Type: AWS::IAM::Group
+    DependsOn: TempConsolePassword
     Properties:
       GroupName: EC2LabGroup
       Policies:
@@ -71,6 +74,7 @@ Resources:
 
   S3Group:
     Type: AWS::IAM::Group
+    DependsOn: TempConsolePassword
     Properties:
       GroupName: S3LabGroup
       Policies:
