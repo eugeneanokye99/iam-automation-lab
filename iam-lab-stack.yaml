@@ -165,23 +165,23 @@ Resources:
         - Key: Group
           Value: EC2
 
-  S3User:
-    Type: AWS::IAM::User
-    DependsOn: TempConsolePassword
-    Properties:
-      UserName: s3-user
-      Groups:
-        - !Ref S3Group
-      LoginProfile:
-        Password: !Sub
-          - "{{resolve:secretsmanager:${SecretArn}:SecretString:password}}"
-          - SecretArn: !Ref TempConsolePassword
-        PasswordResetRequired: true
-      Tags:
-        - Key: Project
-          Value: IAMLab
-        - Key: Group
-          Value: S3
+  # S3User:
+  #   Type: AWS::IAM::User
+  #   DependsOn: TempConsolePassword
+  #   Properties:
+  #     UserName: s3-user
+  #     Groups:
+  #       - !Ref S3Group
+  #     LoginProfile:
+  #       Password: !Sub
+  #         - "{{resolve:secretsmanager:${SecretArn}:SecretString:password}}"
+  #         - SecretArn: !Ref TempConsolePassword
+  #       PasswordResetRequired: true
+  #     Tags:
+  #       - Key: Project
+  #         Value: IAMLab
+  #       - Key: Group
+  #         Value: S3
 
 Outputs:
 
