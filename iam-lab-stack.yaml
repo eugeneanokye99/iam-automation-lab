@@ -219,9 +219,9 @@ Outputs:
     Description: "ARN of the permission boundary applied to ec2-user2."
     Value: !Ref EC2User2PermissionBoundary
 
-  S3UserARN:
-    Description: "ARN of s3-user."
-    Value: !GetAtt S3User.Arn
+  # S3UserARN:
+  #   Description: "ARN of s3-user."
+  #   Value: !GetAtt S3User.Arn
 
   PasswordRetrievalCommand:
     Description: "AWS CLI command to retrieve the temporary password."
